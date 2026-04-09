@@ -1,13 +1,9 @@
 streamlit
 openai
-langchain
-langchain==0.1.20
-langchain-community==0.0.38
-faiss-cpu
 pytesseract
 opencv-python-headless
 speechrecognition
 pydub
 PyPDF2
 Pillow
-tiktoken
+numpy
