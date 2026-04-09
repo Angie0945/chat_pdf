@@ -7,16 +7,10 @@ import numpy as np
 import cv2
 import tempfile
 import platform
-
-# LangChain
-from langchain.text_splitter import RecursiveCharacterTextSplitter as CharacterTextSplitter
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.llms import OpenAI
-from langchain.chains.question_answering import load_qa_chain
+from openai import OpenAI
 
 # ---------------- CONFIG ----------------
-st.set_page_config(page_title="RAG Inteligente", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="Asistente Inteligente", page_icon="🤖", layout="centered")
 
 # ---------------- ESTILO ----------------
 st.markdown("""
@@ -40,18 +34,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------- HEADER ----------------
-st.markdown('<p class="big-title">🤖 Asistente Inteligente RAG</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Analiza PDFs, imágenes 🖼️ y audios 🎤 como un experto</p>', unsafe_allow_html=True)
-
-st.write("🧠 **Sube contenido y haz preguntas sobre él**")
+st.markdown('<p class="big-title">🤖 Asistente Inteligente</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Analiza PDFs, imágenes 🖼️ y audios 🎤</p>', unsafe_allow_html=True)
 
 # ---------------- API KEY ----------------
 api_key = st.text_input("🔑 Ingresa tu API Key de OpenAI", type="password")
 
+client = None
 if api_key:
-    os.environ["OPENAI_API_KEY"] = api_key
+    client = OpenAI(api_key=api_key)
 
-# ---------------- SUBIDA DE ARCHIVOS ----------------
+# ---------------- SUBIDA ----------------
 st.markdown("### 📂 Sube tu contenido")
 
 pdf_file = st.file_uploader("📄 PDF", type="pdf")
@@ -60,21 +53,21 @@ audio_file = st.file_uploader("🎤 Audio", type=["mp3", "wav", "m4a"])
 
 text = ""
 
-# ---------------- PROCESAR PDF ----------------
+# -------- PDF --------
 if pdf_file:
     with st.spinner("📄 Leyendo PDF..."):
         reader = PdfReader(pdf_file)
         for page in reader.pages:
-            text += page.extract_text()
+            text += page.extract_text() or ""
 
-# ---------------- PROCESAR IMAGEN ----------------
+# -------- IMAGEN --------
 if image_file:
-    with st.spinner("🖼️ Extrayendo texto de imagen..."):
+    with st.spinner("🖼️ Extrayendo texto..."):
         img = Image.open(image_file)
         img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
         text += pytesseract.image_to_string(img_cv)
 
-# ---------------- PROCESAR AUDIO ----------------
+# -------- AUDIO --------
 if audio_file:
     with st.spinner("🎤 Transcribiendo audio..."):
         import speech_recognition as sr
@@ -90,57 +83,52 @@ if audio_file:
         try:
             text += recognizer.recognize_google(audio, language="es-ES")
         except:
-            st.error("❌ No se pudo transcribir el audio")
+            st.error("❌ No se pudo transcribir")
 
-# ---------------- MOSTRAR TEXTO ----------------
+# -------- MOSTRAR TEXTO --------
 if text:
-    st.success("✅ Contenido listo para analizar")
-    with st.expander("📜 Ver texto extraído"):
+    st.success("✅ Contenido listo")
+    with st.expander("📜 Ver texto"):
         st.write(text[:2000] + "..." if len(text) > 2000 else text)
 
-# ---------------- PROCESAR RAG ----------------
-if text and api_key:
-
-    with st.spinner("🧠 Procesando conocimiento..."):
-        splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        chunks = splitter.split_text(text)
-
-        embeddings = OpenAIEmbeddings()
-        knowledge_base = FAISS.from_texts(chunks, embeddings)
+# -------- PREGUNTA --------
+if text and client:
 
     st.markdown("### 💬 Haz tu pregunta")
 
-    user_question = st.text_input("Escribe tu pregunta aquí...")
+    pregunta = st.text_input("Escribe aquí...")
 
     if st.button("✨ Obtener respuesta"):
-        if user_question:
 
+        if pregunta:
             with st.spinner("🤖 Pensando..."):
-                docs = knowledge_base.similarity_search(user_question)
 
-                llm = OpenAI(
-                    temperature=0,
-                    model_name="gpt-4o-mini-2024-07-18"
+                respuesta = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Responde basado SOLO en el texto proporcionado."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Texto:\n{text}\n\nPregunta:\n{pregunta}"
+                        }
+                    ]
                 )
 
-                chain = load_qa_chain(llm, chain_type="stuff")
-                response = chain.run(
-                    input_documents=docs,
-                    question=user_question
-                )
-
-            st.markdown("## 🤖 Respuesta")
-            st.success(response)
+                st.markdown("## 🤖 Respuesta")
+                st.success(respuesta.choices[0].message.content)
 
         else:
-            st.warning("⚠️ Escribe una pregunta primero")
+            st.warning("⚠️ Escribe una pregunta")
 
 elif not api_key:
-    st.info("🔑 Ingresa tu API Key para activar el análisis")
+    st.info("🔑 Ingresa tu API Key")
 
 else:
-    st.info("📂 Sube al menos un archivo para comenzar")
+    st.info("📂 Sube contenido")
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
-st.caption("✨ Hecho con Streamlit + IA | Versión Python: " + platform.python_version())
+st.caption("✨ Hecho con Streamlit | Python " + platform.python_version())
