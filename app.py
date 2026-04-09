@@ -9,84 +9,93 @@ from langchain.llms import OpenAI
 from langchain.chains.question_answering import load_qa_chain
 import platform
 
-# App title and presentation
-st.title('Generación Aumentada por Recuperación (RAG) 💬')
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Chat con PDF", page_icon="📄")
+
+# ---------------- HEADER ----------------
+st.title("📄 Chat inteligente con tu PDF")
+st.caption("Haz preguntas y obtén respuestas basadas en el documento")
+
 st.write("Versión de Python:", platform.python_version())
 
-# Load and display image
+# Imagen
 try:
     image = Image.open('Chat_pdf.png')
-    st.image(image, width=350)
-except Exception as e:
-    st.warning(f"No se pudo cargar la imagen: {e}")
+    st.image(image, width=250)
+except:
+    pass
 
-# Sidebar information
-with st.sidebar:
-    st.subheader("Este Agente te ayudará a realizar análisis sobre el PDF cargado")
+# ---------------- API KEY ----------------
+api_key = st.text_input("🔑 Ingresa tu API Key de OpenAI", type="password")
 
-# Get API key from user
-ke = st.text_input('Ingresa tu Clave de OpenAI', type="password")
-if ke:
-    os.environ['OPENAI_API_KEY'] = ke
-else:
-    st.warning("Por favor ingresa tu clave de API de OpenAI para continuar")
+if api_key:
+    os.environ['OPENAI_API_KEY'] = api_key
 
-# PDF uploader
-pdf = st.file_uploader("Carga el archivo PDF", type="pdf")
+# ---------------- PDF ----------------
+pdf = st.file_uploader("📂 Sube tu PDF", type="pdf")
 
-# Process the PDF if uploaded
-if pdf is not None and ke:
-    try:
-        # Extract text from PDF
+# ---------------- SESSION STATE ----------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "knowledge_base" not in st.session_state:
+    st.session_state.knowledge_base = None
+
+# ---------------- PROCESAR PDF ----------------
+if pdf and api_key and st.session_state.knowledge_base is None:
+
+    with st.spinner("Procesando PDF..."):
         pdf_reader = PdfReader(pdf)
         text = ""
+
         for page in pdf_reader.pages:
             text += page.extract_text()
-        
-        st.info(f"Texto extraído: {len(text)} caracteres")
-        
-        # Split text into chunks
+
         text_splitter = CharacterTextSplitter(
             separator="\n",
             chunk_size=500,
-            chunk_overlap=20,
-            length_function=len
+            chunk_overlap=20
         )
+
         chunks = text_splitter.split_text(text)
-        st.success(f"Documento dividido en {len(chunks)} fragmentos")
-        
-        # Create embeddings and knowledge base
+
         embeddings = OpenAIEmbeddings()
-        knowledge_base = FAISS.from_texts(chunks, embeddings)
-        
-        # User question interface
-        st.subheader("Escribe qué quieres saber sobre el documento")
-        user_question = st.text_area(" ", placeholder="Escribe tu pregunta aquí...")
-        
-        # Process question when submitted
-        if user_question:
-            docs = knowledge_base.similarity_search(user_question)
-            
-            # Use a current model instead of deprecated text-davinci-003
-            # Options: "gpt-3.5-turbo-instruct" or "gpt-4o" depending on your API access
-            llm = OpenAI(temperature=0, model_name="gpt-4o-mini-2024-07-18")
-            
-            # Load QA chain
-            chain = load_qa_chain(llm, chain_type="stuff")
-            
-            # Run the chain
-            response = chain.run(input_documents=docs, question=user_question)
-            
-            # Display the response
-            st.markdown("### Respuesta:")
-            st.markdown(response)
-                
-    except Exception as e:
-        st.error(f"Error al procesar el PDF: {str(e)}")
-        # Add detailed error for debugging
-        import traceback
-        st.error(traceback.format_exc())
-elif pdf is not None and not ke:
-    st.warning("Por favor ingresa tu clave de API de OpenAI para continuar")
+        st.session_state.knowledge_base = FAISS.from_texts(chunks, embeddings)
+
+    st.success("✅ Documento listo para preguntas")
+
+# ---------------- CHAT ----------------
+if st.session_state.knowledge_base:
+
+    # Mostrar historial
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Input tipo chat (🔥 mejora clave)
+    user_question = st.chat_input("Escribe tu pregunta sobre el PDF...")
+
+    if user_question:
+        # guardar mensaje usuario
+        st.session_state.messages.append({"role": "user", "content": user_question})
+
+        with st.chat_message("user"):
+            st.markdown(user_question)
+
+        # buscar info
+        docs = st.session_state.knowledge_base.similarity_search(user_question)
+
+        llm = OpenAI(temperature=0, model_name="gpt-4o-mini")
+
+        chain = load_qa_chain(llm, chain_type="stuff")
+
+        with st.chat_message("assistant"):
+            with st.spinner("Pensando..."):
+                response = chain.run(input_documents=docs, question=user_question)
+                st.markdown(response)
+
+        # guardar respuesta
+        st.session_state.messages.append({"role": "assistant", "content": response})
+
 else:
-    st.info("Por favor carga un archivo PDF para comenzar")
+    st.info("📂 Sube un PDF y agrega tu API key para comenzar")
